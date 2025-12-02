@@ -13,7 +13,7 @@
             margin-bottom: 20px;
         }
         pre {
-            direction: ltr;      /* JSON is naturally LTR */
+            direction: ltr;      /* JSON structure is LTR */
             white-space: pre-wrap;
             background: #0b1020;
             color: #e5e7eb;
@@ -28,7 +28,8 @@
 
     <h1>📩 آخر Webhook تم استلامه</h1>
 
-    <pre>{{ webhook | tojson(indent=2, ensure_ascii=False) | safe }}</pre>
+    <!-- NOTE: webhook_json contains pretty JSON string already -->
+    <pre>{{ webhook_json | safe }}</pre>
 
 </body>
 </html>

@@ -26,14 +26,17 @@ async def receive_webhook(payload: dict):
     return {"status": "received", "data": latest_webhook}
 
 
+import json
+
 @app.get("/", response_class=HTMLResponse)
 async def view_webhook(request: Request):
     """
-    First page: displays the last received webhook.
+    First page: displays the last received webhook with real Unicode (Arabic, Chinese...)
     """
+    pretty_webhook = json.dumps(latest_webhook, indent=2, ensure_ascii=False)
     return templates.TemplateResponse(
         "webhook_view.html",
-        {"request": request, "webhook": latest_webhook},
+        {"request": request, "webhook_json": pretty_webhook},
     )
 
 
