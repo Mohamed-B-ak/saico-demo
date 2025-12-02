@@ -1,11 +1,34 @@
 <!DOCTYPE html>
-<html>
+<html lang="ar">
 <head>
-    <link rel="stylesheet" href="/static/styles.css">
+    <meta charset="UTF-8">
     <title>Webhook Viewer</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        body {
+            direction: rtl;
+            font-family: "Segoe UI", Arial, sans-serif;
+        }
+        h1 {
+            margin-bottom: 20px;
+        }
+        pre {
+            direction: ltr;      /* JSON is naturally LTR */
+            white-space: pre-wrap;
+            background: #0b1020;
+            color: #e5e7eb;
+            padding: 20px;
+            border-radius: 12px;
+            font-size: 14px;
+            overflow-x: auto;
+        }
+    </style>
 </head>
 <body>
-    <h1>Latest Webhook Received</h1>
-    <pre>{{ webhook | tojson(indent=2) }}</pre>
+
+    <h1>📩 آخر Webhook تم استلامه</h1>
+
+    <pre>{{ webhook | tojson(indent=2, ensure_ascii=False) | safe }}</pre>
+
 </body>
 </html>
