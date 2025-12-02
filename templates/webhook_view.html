@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="/static/styles.css">
+    <title>Webhook Viewer</title>
+</head>
+<body>
+    <h1>Latest Webhook Received</h1>
+    <pre>{{ webhook | tojson(indent=2) }}</pre>
+</body>
+</html>

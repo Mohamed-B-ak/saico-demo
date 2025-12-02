@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sondos AI – API Console</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="page">
+    <header class="header">
+        <h1>Sondos AI – API Console</h1>
+        <p>Use your API key to test assistants, calls and leads from one place.</p>
+    </header>
+
+    <section class="api-key-card card">
+        <h2>🔐 API Key</h2>
+        <p class="hint">This key will be used for all actions below.</p>
+        <input id="apiKey" type="password" placeholder="Enter your Sondos API key">
+    </section>
+
+    <div class="grid">
+
+        <!-- Assistants List -->
+        <section class="card">
+            <h2>1️⃣ Get Assistants</h2>
+            <p>Fetch all assistants for this account.</p>
+            <button onclick="getAssistants()">Get Assistants</button>
+            <pre id="assistantsResult" class="result-box"></pre>
+        </section>
+
+
+        <!-- Delete Assistant -->
+        <section class="card">
+            <h2>3️⃣ Delete Assistant</h2>
+            <p>Delete an assistant by ID (be careful!).</p>
+            <label>Assistant ID</label>
+            <input id="deleteAssistantId" type="number" placeholder="Assistant ID">
+            <button class="danger" onclick="deleteAssistant()">Delete Assistant</button>
+            <pre id="deleteAssistantResult" class="result-box"></pre>
+        </section>
+
+        <!-- Languages -->
+        <section class="card">
+            <h2>4️⃣ Get Available Languages</h2>
+            <p>View all supported assistant languages.</p>
+            <button onclick="getLanguages()">Get Languages</button>
+            <pre id="languagesResult" class="result-box"></pre>
+        </section>
+
+        <!-- Calls -->
+        <section class="card">
+            <h2>5️⃣ Get Calls</h2>
+            <p>List calls for this account.</p>
+            <button onclick="getCalls()">Get Calls</button>
+            <pre id="callsResult" class="result-box"></pre>
+        </section>
+
+        <!-- Make Call -->
+        <section class="card">
+            <h2>6️⃣ Make Call</h2>
+            <p>Trigger an outbound call using an assistant.</p>
+
+            <label>Phone Number</label>
+            <input id="makeCallPhone" type="text" placeholder="+9665XXXXXXXX">
+
+            <label>Assistant ID</label>
+            <input id="makeCallAssistantId" type="number" placeholder="Assistant ID">
+
+            <label>Customer Name (optional)</label>
+            <input id="makeCallCustomerName" type="text" placeholder="Customer name">
+
+            <label>Customer Email (optional)</label>
+            <input id="makeCallEmail" type="email" placeholder="customer@example.com">
+
+            <button onclick="makeCall()">Make Call</button>
+            <pre id="makeCallResult" class="result-box"></pre>
+        </section>
+
+
+
+    </div>
+</div>
+
+<script>
+    const apiKeyInput = document.getElementById("apiKey");
+
+    function ensureApiKey() {
+        const key = apiKeyInput.value.trim();
+        if (!key) {
+            alert("Please enter your API key first.");
+            throw new Error("Missing API key");
+        }
+        return key;
+    }
+
+    async function postForm(url, data) {
+        const formData = new FormData();
+        Object.entries(data).forEach(([k, v]) => {
+            if (v !== undefined && v !== null) {
+                formData.append(k, v);
+            }
+        });
+
+        const res = await fetch(url, {
+            method: "POST",
+            body: formData
+        });
+
+        let json;
+        try {
+            json = await res.json();
+        } catch (e) {
+            json = { ok: false, error: "invalid_json", raw: await res.text() };
+        }
+        return json;
+    }
+
+    // 1) Get Assistants
+    async function getAssistants() {
+        const apiKey = ensureApiKey();
+        const resultBox = document.getElementById("assistantsResult");
+        resultBox.textContent = "Loading...";
+        const data = await postForm("/actions/assistants/get", { api_key: apiKey });
+        resultBox.textContent = JSON.stringify(data, null, 2);
+    }
+
+
+    // 3) Delete Assistant
+    async function deleteAssistant() {
+        const apiKey = ensureApiKey();
+        const resultBox = document.getElementById("deleteAssistantResult");
+        resultBox.textContent = "Deleting assistant...";
+
+        const assistantId = document.getElementById("deleteAssistantId").value;
+
+        const data = await postForm("/actions/assistants/delete", {
+            api_key: apiKey,
+            assistant_id: assistantId
+        });
+        resultBox.textContent = JSON.stringify(data, null, 2);
+    }
+
+    // 4) Get Languages
+    async function getLanguages() {
+        const apiKey = ensureApiKey();
+        const resultBox = document.getElementById("languagesResult");
+        resultBox.textContent = "Loading languages...";
+
+        const data = await postForm("/actions/assistants/languages", {
+            api_key: apiKey
+        });
+        resultBox.textContent = JSON.stringify(data, null, 2);
+    }
+
+    // 5) Get Calls
+    async function getCalls() {
+        const apiKey = ensureApiKey();
+        const resultBox = document.getElementById("callsResult");
+        resultBox.textContent = "Loading calls...";
+
+        const data = await postForm("/actions/calls", { api_key: apiKey });
+        resultBox.textContent = JSON.stringify(data, null, 2);
+    }
+
+    // 6) Make Call
+    async function makeCall() {
+        const apiKey = ensureApiKey();
+        const resultBox = document.getElementById("makeCallResult");
+        resultBox.textContent = "Sending call request...";
+
+        const payload = {
+            api_key: apiKey,
+            phone_number: document.getElementById("makeCallPhone").value,
+            assistant_id: document.getElementById("makeCallAssistantId").value,
+            customer_name: document.getElementById("makeCallCustomerName").value,
+            email: document.getElementById("makeCallEmail").value
+        };
+
+        const data = await postForm("/actions/make-call", payload);
+        resultBox.textContent = JSON.stringify(data, null, 2);
+    }
+
+
+</script>
+</body>
+</html>
