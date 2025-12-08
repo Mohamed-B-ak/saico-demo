@@ -237,3 +237,101 @@ async def get_leads(api_key: str = Form(...)):
     GET /leads
     """
     return sondos_request("GET", "/leads", api_key)
+
+# ================================================================
+#  Endpoint for tool: Get Invoices by Phone & Time
+# ================================================================
+from fastapi import Depends
+from datetime import date
+from sqlalchemy.orm import Session
+from database import CustomerInvoice, get_db
+@app.get("/invoices")
+def get_invoices(
+    phone: str,
+    time: str,       # "old" or "new"
+    db: Session = Depends(get_db)
+):
+    """
+    Returns invoices filtered by:
+    - customer phone number
+    - time type: old/new
+
+    old = payment_date < today
+    new = payment_date >= today
+    """
+
+    today = date.today()
+
+    # Validate input
+    if time not in ["old", "new"]:
+        return {
+            "ok": False,
+            "error": "Invalid 'time'. Use 'old' or 'new'."
+        }
+
+    # Base query: filter by phone number first
+    query = db.query(CustomerInvoice).filter(CustomerInvoice.customer_phone == phone)
+
+    # Apply time filter
+    if time == "old":
+        query = query.filter(CustomerInvoice.payment_date < today)
+    else:  # time == "new"
+        query = query.filter(CustomerInvoice.payment_date >= today)
+
+    invoices = query.all()
+
+    return {
+        "ok": True,
+        "count": len(invoices),
+        "invoices": invoices
+    }
+# ================================================================
+#  🔥 JOB SYSTEM
+# ================================================================
+
+from datetime import date
+from apscheduler.schedulers.background import BackgroundScheduler
+from database import SessionLocal, CustomerInvoice
+
+
+def check_overdue_invoices():
+    db = SessionLocal()
+    today = date.today()
+
+    overdue = db.query(CustomerInvoice).filter(
+        CustomerInvoice.payment_date < today,
+        CustomerInvoice.is_paid == False
+    ).all()
+
+    print("\n==== Checking overdue invoices ====")
+
+    if overdue:
+        print("⚠️ Overdue invoices found:")
+        for c in overdue:
+            print(f"{c.customer_name} | {c.invoice_amount}$ | Due: {c.payment_date}")
+            from utils import make_call
+            response = make_call(
+                phone_number=c.customer_phone,
+                customer_name=c.customer_name,
+                email=c.customer_email,
+            )
+            print(response)
+    else:
+        print("✅ No overdue invoices")
+
+    db.close()
+
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(check_overdue_invoices, "interval", minutes=2)
+
+
+@app.on_event("startup")
+def start_jobs():
+    scheduler.start()
+    check_overdue_invoices()
+
+
+@app.on_event("shutdown")
+def stop_jobs():
+    scheduler.shutdown()
