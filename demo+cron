@@ -1,0 +1,267 @@
+from fastapi import FastAPI, Request, Form, Depends
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+import requests
+import json
+
+# ============================
+#  FASTAPI BASE PROJECT SETUP
+# ============================
+
+app = FastAPI()
+templates = Jinja2Templates(directory="templates")
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+latest_webhook = {"data": "No webhook received yet."}
+
+
+@app.post("/webhook")
+async def receive_webhook(payload: dict):
+    global latest_webhook
+    latest_webhook = payload
+    return {"status": "received", "data": latest_webhook}
+
+
+@app.get("/", response_class=HTMLResponse)
+async def view_webhook(request: Request):
+    pretty_webhook = json.dumps(latest_webhook, indent=2, ensure_ascii=False)
+    return templates.TemplateResponse(
+        "webhook_view.html",
+        {"request": request, "webhook_json": pretty_webhook},
+    )
+
+# ============================
+#  SONDOS API SECTION
+# ============================
+
+BASE_URL = "https://app.sondos-ai.com/api/user"
+
+
+def sondos_request(method: str, endpoint: str, api_key: str, **kwargs):
+    headers = kwargs.pop("headers", {})
+    headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        resp = requests.request(
+            method=method,
+            url=f"{BASE_URL}{endpoint}",
+            headers=headers,
+            **kwargs,
+        )
+    except requests.RequestException as e:
+        return {"ok": False, "error": "request_exception", "details": str(e)}
+
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {"raw_text": resp.text}
+
+    return {
+        "ok": resp.ok,
+        "status_code": resp.status_code,
+        "data": data,
+    }
+
+
+@app.get("/api-actions", response_class=HTMLResponse)
+async def api_actions_page(request: Request):
+    return templates.TemplateResponse("api_actions.html", {"request": request})
+
+
+# Assistants Actions
+@app.post("/actions/assistants/get")
+async def get_assistants(api_key: str = Form(...)):
+    return sondos_request("GET", "/assistants/get", api_key)
+
+
+@app.post("/actions/assistants/create")
+async def create_assistant(
+    api_key: str = Form(...),
+    assistant_name: str = Form(...),
+    voice_id: int = Form(...),
+    language: str = Form(...),
+    llm_model: str = Form(...),
+    calls_direction: str = Form("outbound"),
+    engine_type: str = Form("sondos"),
+    timezone: str = Form("Asia/Riyadh"),
+    initial_message: str = Form(...),
+    system_prompt: str = Form(...),
+    phone_number_id: int = Form(...),
+    webhook_url: str = Form(""),
+):
+    payload = {
+        "assistant_name": assistant_name,
+        "voice_id": voice_id,
+        "language": language,
+        "llm_model": llm_model,
+        "calls_direction": calls_direction,
+        "engine_type": engine_type,
+        "timezone": timezone,
+        "initial_message": initial_message,
+        "system_prompt": system_prompt,
+        "phone_number_id": phone_number_id,
+        "endpoint_type": "sip",
+        "variables": {},
+    }
+
+    return sondos_request(
+        "POST",
+        "/assistant",
+        api_key,
+        json=payload,
+        headers={"Content-Type": "application/json"},
+    )
+
+
+@app.post("/actions/assistants/delete")
+async def delete_assistant(api_key: str = Form(...), assistant_id: int = Form(...)):
+    return sondos_request("DELETE", f"/assistant/{assistant_id}", api_key)
+
+
+@app.post("/actions/assistants/languages")
+async def get_languages(api_key: str = Form(...)):
+    return sondos_request("GET", "/assistants/languages", api_key)
+
+
+# Calls
+@app.post("/actions/calls")
+async def get_calls(api_key: str = Form(...)):
+    return sondos_request("GET", "/calls", api_key)
+
+
+@app.post("/actions/make-call")
+async def make_call(
+    api_key: str = Form(...),
+    phone_number: str = Form(...),
+    assistant_id: int = Form(...),
+    customer_name: str = Form(""),
+    email: str = Form(""),
+):
+    variables = {}
+    if customer_name:
+        variables["customer_name"] = customer_name
+    if email:
+        variables["email"] = email
+
+    payload = {"phone_number": phone_number, "assistant_id": assistant_id, "variables": variables}
+
+    return sondos_request(
+        "POST",
+        "/make_call",
+        api_key,
+        json=payload,
+        headers={"Content-Type": "application/json"},
+    )
+
+
+# ============================
+#  LEADS
+# ============================
+
+@app.post("/actions/leads")
+async def get_leads(api_key: str = Form(...)):
+    return sondos_request("GET", "/leads", api_key)
+
+
+# ============================
+#  INVOICE SYSTEM (YOUR REQUEST)
+# ============================
+
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, Boolean
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from datetime import date, timedelta
+from apscheduler.schedulers.background import BackgroundScheduler
+
+DATABASE_URL = "sqlite:///./invoices.db"
+
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+Base = declarative_base()
+
+
+class CustomerInvoice(Base):
+    __tablename__ = "customer_invoices"
+    id = Column(Integer, primary_key=True)
+    customer_name = Column(String)
+    invoice_amount = Column(Float)
+    payment_date = Column(Date)
+    customer_phone = Column(String)
+    customer_email = Column(String)
+    is_paid = Column(Boolean, default=False)
+
+
+Base.metadata.create_all(engine)
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# API: Get customers with overdue invoices
+@app.get("/customers/late")
+def get_late_customers(db: Session = Depends(get_db)):
+    today = date.today()
+    return db.query(CustomerInvoice).filter(
+        CustomerInvoice.payment_date < today,
+        CustomerInvoice.is_paid == False
+    ).all()
+
+
+# Cron job (every 2 minutes)
+def check_overdue_invoices():
+    db = SessionLocal()
+    today = date.today()
+
+    print("\n==== Checking overdue invoices ====")
+
+    overdue = db.query(CustomerInvoice).filter(
+        CustomerInvoice.payment_date < today,
+        CustomerInvoice.is_paid == False
+    ).all()
+
+    if overdue:
+        print("⚠️ Overdue customers:")
+        for c in overdue:
+            print(f"{c.customer_name} | {c.invoice_amount}$ | Due: {c.payment_date}")
+    else:
+        print("✅ No overdue customers")
+
+    db.close()
+
+
+# Insert demo invoices once
+def insert_demo_data():
+    db = SessionLocal()
+    if db.query(CustomerInvoice).count() == 0:
+        demo = [
+            {"customer_name": "John Doe", "invoice_amount": 120, "payment_date": date.today() - timedelta(days=3),
+             "customer_phone": "+111", "customer_email": "john@example.com"},
+            {"customer_name": "Alice Brown", "invoice_amount": 300, "payment_date": date.today() + timedelta(days=2),
+             "customer_phone": "+222", "customer_email": "alice@example.com"},
+            {"customer_name": "Mark Smith", "invoice_amount": 200, "payment_date": date.today() - timedelta(days=1),
+             "customer_phone": "+333", "customer_email": "mark@example.com"},
+        ]
+        for d in demo:
+            db.add(CustomerInvoice(**d))
+        db.commit()
+    db.close()
+
+
+insert_demo_data()
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(check_overdue_invoices, "interval", minutes=2)
+scheduler.start()
+
+check_overdue_invoices()
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    scheduler.shutdown()
