@@ -285,7 +285,7 @@ def get_invoices(
         "count": len(invoices),
         "invoices": invoices
     }
-# ================================================================
+""" # ================================================================
 #  🔥 JOB SYSTEM
 # ================================================================
 
@@ -334,4 +334,4 @@ def start_jobs():
 
 @app.on_event("shutdown")
 def stop_jobs():
-    scheduler.shutdown()
+    scheduler.shutdown() """
